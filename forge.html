@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Generador (NO subir a GitHub)</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:640px;margin:30px auto;padding:0 16px;line-height:1.5}
+label{display:block;margin-top:14px;font-weight:600}
+input,textarea{width:100%;padding:8px;font:inherit;box-sizing:border-box}
+button{margin-top:16px;padding:10px 18px;font:inherit;cursor:pointer}
+textarea{height:200px;font-family:monospace;font-size:12px}
+.w{background:#fff3cd;padding:10px;border-radius:6px}
+</style>
+</head>
+<body>
+<h2>Generador de data.js</h2>
+<p class="w">Ábrelo con doble clic en tu computadora. <b>No lo subas a GitHub</b> (el repositorio es público y esta página explica cómo se construye todo).</p>
+<label>Palabra o código secreto (una letra o número por sudoku)</label>
+<input id="code" placeholder="Ejemplo: UVAS">
+<label>Nombre de ella</label>
+<input id="nom" placeholder="Ejemplo: Ana">
+<label>Mensaje final (aparece al abrir todas las barricas)</label>
+<input id="msg" value="Lo lograste, mi tortuguita ninja.">
+<button id="go">Generar</button>
+<p id="st"></p>
+<textarea id="out" readonly></textarea>
+<button id="dl" hidden>Descargar data.js</button>
+<script>
+const sh=a=>{for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a};
+function solve(g,lim,rand){
+  const a=g.slice(),R=Array(9).fill(0),C=Array(9).fill(0),B=Array(9).fill(0);
+  let n=0,sol=null;
+  const bx=i=>(i/27|0)*3+(i%9/3|0);
+  for(let i=0;i<81;i++)if(a[i]){const m=1<<(a[i]-1);R[i/9|0]|=m;C[i%9]|=m;B[bx(i)]|=m}
+  (function rec(){
+    let b=-1,bm=0,bc=10;
+    for(let i=0;i<81;i++)if(!a[i]){
+      const m=~(R[i/9|0]|C[i%9]|B[bx(i)])&511;let c=0,x=m;while(x){c++;x&=x-1}
+      if(c<bc){bc=c;b=i;bm=m;if(c<2)break}
+    }
+    if(b<0){n++;if(!sol)sol=a.slice();return n>=lim}
+    if(!bc)return false;
+    const ds=[];for(let d=0;d<9;d++)if(bm>>d&1)ds.push(d);
+    if(rand)sh(ds);
+    for(const d of ds){
+      const m=1<<d;a[b]=d+1;R[b/9|0]|=m;C[b%9]|=m;B[bx(b)]|=m;
+      const stop=rec();
+      a[b]=0;R[b/9|0]&=~m;C[b%9]&=~m;B[bx(b)]&=~m;
+      if(stop)return true;
+    }
+    return false;
+  })();
+  return{n,sol};
+}
+function make(target){
+  const sol=solve(Array(81).fill(0),1,true).sol,p=sol.slice();let cnt=81;
+  for(const i of sh([...Array(81).keys()])){
+    if(cnt<=target)break;
+    const v=p[i];p[i]=0;
+    if(solve(p,2,false).n!==1)p[i]=v;else cnt--;
+  }
+  return{p,sol};
+}
+const b64=u=>btoa(String.fromCharCode(...new Uint8Array(u)));
+async function seal(sol,id,txt){
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const k=await crypto.subtle.importKey('raw',await crypto.subtle.digest('SHA-256',new TextEncoder().encode(sol+id)),'AES-GCM',false,['encrypt']);
+  const c=await crypto.subtle.encrypt({name:'AES-GCM',iv},k,new TextEncoder().encode(txt));
+  return{v:b64(iv),c:b64(c)};
+}
+async function build(code,n,m,tick){
+  const ch=[...code.toUpperCase().replace(/\s/g,'')],L=[],ids=new Set();
+  for(let k=0;k<ch.length;k++){
+    if(tick)await tick(k,ch.length);
+    const t=Math.round(40-16*(ch.length>1?k/(ch.length-1):0));
+    const{p,sol}=make(t);
+    let id;do{id=Math.random().toString(36).slice(2,6)}while(ids.has(id)||id.length<4);ids.add(id);
+    L.push({i:id,p:p.join(''),...await seal(sol.join(''),id,ch[k])});
+  }
+  return'const D='+JSON.stringify({n,m,L})+';';
+}
+if(typeof document!=='undefined'){
+  const $=s=>document.getElementById(s);
+  $('go').onclick=async()=>{
+    if(!$('code').value.trim()){$('st').textContent='Escribe la palabra secreta.';return}
+    $('out').value='';$('dl').hidden=true;
+    const out=await build($('code').value,$('nom').value.trim()||'amor',$('msg').value,
+      async(k,n)=>{$('st').textContent=`Creando sudoku ${k+1} de ${n}...`;await new Promise(r=>setTimeout(r,20))});
+    $('out').value=out;$('st').textContent='Listo. Descarga data.js o copia el texto.';$('dl').hidden=false;
+    $('dl').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([out]));a.download='data.js';a.click()};
+  };
+}
+</script>
+</body>
+</html>
